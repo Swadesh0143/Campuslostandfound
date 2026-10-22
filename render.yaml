@@ -3,7 +3,7 @@
 # ==============================================================================
 # Deploys:
 #   1. campusfind-backend  -> Node.js API Web Service (Free Tier)
-#   2. campusfind-frontend -> React 18 + Vite Static SPA Site (Free Tier)
+#   2. campusfind-frontend -> React 18 + Vite Static Site (Free Tier)
 # ==============================================================================
 
 services:
@@ -48,8 +48,9 @@ services:
   # ----------------------------------------------------------------------------
   # 2. Frontend React Single Page Application (Static Site)
   # ----------------------------------------------------------------------------
-  - type: static
+  - type: web
     name: campusfind-frontend
+    runtime: static
     plan: free
     region: oregon
     buildCommand: npm --prefix frontend install && npm --prefix frontend run build
