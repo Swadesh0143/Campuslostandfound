@@ -1,0 +1,36 @@
+{
+  "name": "campusfind",
+  "version": "1.0.0",
+  "description": "CampusFind - Cloud-Based Campus Lost & Found System",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "start": "node backend/src/dev-server.js",
+    "start:backend": "node backend/src/dev-server.js",
+    "start:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "test": "npm --prefix backend test && npm --prefix frontend test",
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend test",
+    "lint": "npm --prefix frontend run lint",
+    "sam:validate": "sam validate --lint",
+    "sam:build": "sam build",
+    "sam:deploy": "sam deploy --guided"
+  },
+  "keywords": [
+    "aws",
+    "serverless",
+    "dynamodb",
+    "s3",
+    "api-gateway",
+    "cognito",
+    "react",
+    "lost-and-found"
+  ],
+  "author": "CampusFind Team",
+  "license": "MIT"
+}
