@@ -186,7 +186,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`\n======================================================`);
   console.log(`[CampusFind] Backend dev-server running at http://localhost:${PORT}`);
   console.log(`  Mode: Local In-Memory Serverless Simulation`);

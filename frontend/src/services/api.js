@@ -1,7 +1,11 @@
 // Frontend API Client: Connected to Real Backend
 import { config } from '../config';
 
-const BASE_URL = config.apiBaseUrl.replace(/\/+$/, '');
+let rawBase = (config.apiBaseUrl || '').trim().replace(/\/+$/, '');
+if (rawBase && !rawBase.startsWith('http://') && !rawBase.startsWith('https://') && !rawBase.startsWith('/')) {
+  rawBase = `https://${rawBase}`;
+}
+const BASE_URL = rawBase;
 
 class ApiError extends Error {
   constructor(message, status, details = null) {
