@@ -1,13 +1,11 @@
 // Backend Unit Tests: Items Handlers (Create, Get, List)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MockDynamoDbClient } from './mock-db.js';
-import { setDocClientForTesting } from '../src/db.js';
+import { MockPostgresClient } from './mock-db.js';
 import { createItemHandler, getItemHandler, listItemsHandler } from '../src/handlers/items.js';
 
 test('createItemHandler creates item, securely generates ownership token, and hides contact method', async () => {
-  const mockDb = new MockDynamoDbClient();
-  setDocClientForTesting(mockDb);
+  const mockDb = new MockPostgresClient();
 
   const payload = {
     type: 'found',
@@ -38,18 +36,16 @@ test('createItemHandler creates item, securely generates ownership token, and hi
   assert.equal(response.body.management.token.length, 64);
   assert.ok(response.body.management.manageUrl.includes(response.body.item.itemId));
 
-  // Verify ownership record in DynamoDB has hashed token, NOT raw token
-  const ownershipTable = mockDb.tables['CampusFind-Ownership'];
-  const storedOwnership = ownershipTable.get(response.body.item.itemId);
+  // Verify ownership record stores the token hash rather than the raw token.
+  const storedOwnership = mockDb.ownership.get(response.body.item.itemId);
   assert.ok(storedOwnership);
-  assert.ok(storedOwnership.tokenHash);
-  assert.notEqual(storedOwnership.tokenHash, response.body.management.token); // HASH must differ from raw token!
+  assert.ok(storedOwnership.token_hash);
+  assert.notEqual(storedOwnership.token_hash, response.body.management.token);
   assert.ok(storedOwnership.salt);
 });
 
 test('getItemHandler retrieves item, increments view count, and masks contact details', async () => {
-  const mockDb = new MockDynamoDbClient();
-  setDocClientForTesting(mockDb);
+  const mockDb = new MockPostgresClient();
 
   const createRes = await createItemHandler(
     {
@@ -82,8 +78,7 @@ test('getItemHandler retrieves item, increments view count, and masks contact de
 });
 
 test('listItemsHandler returns sorted items and applies type filtering', async () => {
-  const mockDb = new MockDynamoDbClient();
-  setDocClientForTesting(mockDb);
+  const mockDb = new MockPostgresClient();
 
   await createItemHandler(
     {

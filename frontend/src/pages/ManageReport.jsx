@@ -265,7 +265,7 @@ export function ManageReport() {
                     Permanently Delete Report
                   </h4>
                   <p className="text-xs text-rose-800 mt-0.5">
-                    Permanently removes this report and any associated images from AWS DynamoDB and S3.
+                    Permanently removes this report from PostgreSQL and any associated image from S3.
                   </p>
                 </div>
                 <button

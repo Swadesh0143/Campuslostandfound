@@ -1,19 +1,23 @@
-// Abuse Reporting & Moderation Handler
 import crypto from 'crypto';
-import {
-  PutCommand,
-  ScanCommand,
-  UpdateCommand,
-  GetCommand,
-} from '@aws-sdk/lib-dynamodb';
-import { getDocClient } from '../db.js';
-import { config } from '../config.js';
+import { getDatabase, withTransaction } from '../db.js';
 import { validateReportInput } from '../validation.js';
 import { verifyAdminAuth } from '../auth.js';
 
-/**
- * POST /items/:itemId/report - Report suspicious or inappropriate listing
- */
+function mapReport(row) {
+  return {
+    reportId: row.report_id,
+    itemId: row.item_id,
+    itemName: row.item_name,
+    reason: row.reason,
+    details: row.details,
+    reporterIpHash: row.reporter_ip_hash,
+    status: row.status,
+    createdAt: new Date(row.created_at).toISOString(),
+    resolvedAt: row.resolved_at ? new Date(row.resolved_at).toISOString() : undefined,
+    resolvedBy: row.resolved_by || undefined,
+  };
+}
+
 export async function submitAbuseReportHandler(itemId, body, clientIp = 'unknown', clientOverride = null) {
   if (!itemId || typeof itemId !== 'string') {
     return { statusCode: 400, body: { success: false, error: 'Valid itemId parameter is required' } };
@@ -21,62 +25,29 @@ export async function submitAbuseReportHandler(itemId, body, clientIp = 'unknown
 
   const validation = validateReportInput(body);
   if (!validation.isValid) {
-    return {
-      statusCode: 400,
-      body: { success: false, error: 'Validation failed', details: validation.errors },
-    };
+    return { statusCode: 400, body: { success: false, error: 'Validation failed', details: validation.errors } };
   }
 
-  const docClient = getDocClient(clientOverride);
-
-  // Check item exists
-  const itemCheck = await docClient.send(
-    new GetCommand({
-      TableName: config.tables.items,
-      Key: { itemId },
-    })
-  );
-
-  if (!itemCheck.Item) {
-    return { statusCode: 404, body: { success: false, error: 'Item report not found' } };
-  }
+  const database = getDatabase(clientOverride);
+  const itemResult = await database.query('SELECT name FROM items WHERE item_id = $1', [itemId]);
+  const item = itemResult.rows[0];
+  if (!item) return { statusCode: 404, body: { success: false, error: 'Item report not found' } };
 
   const reportId = crypto.randomUUID();
   const now = new Date().toISOString();
   const ipHash = crypto.createHash('sha256').update(clientIp).digest('hex').substring(0, 16);
-
-  const reportRecord = {
-    reportId,
-    itemId,
-    itemName: itemCheck.Item.name,
-    reason: validation.sanitized.reason,
-    details: validation.sanitized.details,
-    reporterIpHash: ipHash,
-    status: 'pending',
-    createdAt: now,
-  };
-
-  await docClient.send(
-    new PutCommand({
-      TableName: config.tables.reports,
-      Item: reportRecord,
-    })
-  );
-
-  // Auto-flag item for moderation review if it gets reported
-  try {
-    await docClient.send(
-      new UpdateCommand({
-        TableName: config.tables.items,
-        Key: { itemId },
-        UpdateExpression: 'SET #modStatus = :flagged, #flaggedAt = :now',
-        ExpressionAttributeNames: { '#modStatus': 'moderationStatus', '#flaggedAt': 'flaggedAt' },
-        ExpressionAttributeValues: { ':flagged': 'flagged', ':now': now },
-      })
+  await withTransaction(async (client) => {
+    await client.query(
+      `INSERT INTO abuse_reports
+       (report_id, item_id, item_name, reason, details, reporter_ip_hash, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)`,
+      [reportId, itemId, item.name, validation.sanitized.reason, validation.sanitized.details, ipHash, now]
     );
-  } catch (err) {
-    console.warn(`Could not flag item ${itemId} on report:`, err.message);
-  }
+    await client.query(
+      `UPDATE items SET moderation_status = 'flagged', flagged_at = $2 WHERE item_id = $1`,
+      [itemId, now]
+    );
+  }, database);
 
   return {
     statusCode: 201,
@@ -88,89 +59,44 @@ export async function submitAbuseReportHandler(itemId, body, clientIp = 'unknown
   };
 }
 
-/**
- * GET /admin/reports - Moderation queue of pending reports (Admin only)
- */
 export async function listAbuseReportsHandler(headers = {}, clientOverride = null) {
   const authHeader = headers['authorization'] || headers['Authorization'];
   const auth = await verifyAdminAuth(authHeader);
-
   if (!auth.isAuthenticated) {
-    return {
-      statusCode: 401,
-      body: { success: false, error: auth.error || 'Admin authorization required' },
-    };
+    return { statusCode: 401, body: { success: false, error: auth.error || 'Admin authorization required' } };
   }
 
-  const docClient = getDocClient(clientOverride);
-
-  const result = await docClient.send(
-    new ScanCommand({
-      TableName: config.tables.reports,
-      Limit: 50,
-    })
+  const database = getDatabase(clientOverride);
+  const result = await database.query(
+    'SELECT * FROM abuse_reports ORDER BY created_at DESC, report_id'
   );
-
-  const reports = result.Items || [];
-  reports.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-
-  return {
-    statusCode: 200,
-    body: {
-      success: true,
-      reports,
-      count: reports.length,
-    },
-  };
+  const reports = result.rows.map(mapReport);
+  return { statusCode: 200, body: { success: true, reports, count: reports.length } };
 }
 
-/**
- * PATCH /admin/reports/:reportId - Resolve or dismiss abuse report (Admin only)
- */
 export async function resolveAbuseReportHandler(reportId, body, headers = {}, clientOverride = null) {
   const authHeader = headers['authorization'] || headers['Authorization'];
   const auth = await verifyAdminAuth(authHeader);
-
   if (!auth.isAuthenticated) {
-    return {
-      statusCode: 401,
-      body: { success: false, error: auth.error || 'Admin authorization required' },
-    };
+    return { statusCode: 401, body: { success: false, error: auth.error || 'Admin authorization required' } };
   }
 
-  const resolution = body?.status; // 'actioned' | 'dismissed'
+  const resolution = body?.status;
   if (!['actioned', 'dismissed'].includes(resolution)) {
-    return {
-      statusCode: 400,
-      body: { success: false, error: "Status must be 'actioned' or 'dismissed'" },
-    };
+    return { statusCode: 400, body: { success: false, error: "Status must be 'actioned' or 'dismissed'" } };
   }
 
-  const docClient = getDocClient(clientOverride);
-
-  await docClient.send(
-    new UpdateCommand({
-      TableName: config.tables.reports,
-      Key: { reportId },
-      UpdateExpression: 'SET #status = :res, #resolvedAt = :now, #resolvedBy = :user',
-      ExpressionAttributeNames: {
-        '#status': 'status',
-        '#resolvedAt': 'resolvedAt',
-        '#resolvedBy': 'resolvedBy',
-      },
-      ExpressionAttributeValues: {
-        ':res': resolution,
-        ':now': new Date().toISOString(),
-        ':user': auth.user.username,
-      },
-    })
+  const database = getDatabase(clientOverride);
+  const result = await database.query(
+    `UPDATE abuse_reports
+     SET status = $2, resolved_at = $3, resolved_by = $4
+     WHERE report_id = $1
+     RETURNING report_id`,
+    [reportId, resolution, new Date().toISOString(), auth.user.username]
   );
+  if (!result.rowCount) {
+    return { statusCode: 404, body: { success: false, error: 'Abuse report not found' } };
+  }
 
-  return {
-    statusCode: 200,
-    body: {
-      success: true,
-      message: `Report ${reportId} marked as ${resolution}`,
-    },
-  };
+  return { statusCode: 200, body: { success: true, message: `Report ${reportId} marked as ${resolution}` } };
 }

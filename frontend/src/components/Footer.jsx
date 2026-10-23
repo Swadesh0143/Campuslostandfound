@@ -95,7 +95,7 @@ export function Footer() {
               </div>
               <div className="flex items-center justify-between py-1 border-b border-slate-800">
                 <span className="text-slate-500">Database</span>
-                <span className="font-mono text-indigo-300">DynamoDB (On-Demand)</span>
+                <span className="font-mono text-indigo-300">PostgreSQL</span>
               </div>
               <div className="flex items-center justify-between py-1 border-b border-slate-800">
                 <span className="text-slate-500">Storage</span>
@@ -108,7 +108,7 @@ export function Footer() {
             </div>
             <div className="mt-4 p-2.5 bg-emerald-950/40 border border-emerald-800/50 rounded-xl text-[11px] text-emerald-300 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-              <span>Zero-idle cost serverless design</span>
+              <span>PostgreSQL hosting is provider-dependent</span>
             </div>
           </div>
         </div>

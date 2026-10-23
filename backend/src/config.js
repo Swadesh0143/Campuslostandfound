@@ -1,11 +1,8 @@
+import 'dotenv/config';
+
 // CampusFind Backend Configuration
 export const config = {
   region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1',
-  tables: {
-    items: process.env.TABLE_ITEMS || 'CampusFind-Items',
-    ownership: process.env.TABLE_OWNERSHIP || 'CampusFind-Ownership',
-    reports: process.env.TABLE_REPORTS || 'CampusFind-AbuseReports',
-  },
   s3: {
     bucketName: process.env.S3_BUCKET || 'campusfind-item-images',
     presignedUrlExpirySeconds: 300, // 5 minutes

@@ -18,7 +18,7 @@ export function setCognitoClientForTesting(client) {
 
 /**
  * Generates a cryptographically strong 256-bit management token and hash.
- * Returns the raw token (to be sent ONCE to the reporter) and the salt/hash (to be stored in DynamoDB).
+ * Returns the raw token (to be sent ONCE to the reporter) and the salt/hash (to be stored in PostgreSQL).
  */
 export function generateManagementToken() {
   const rawToken = crypto.randomBytes(32).toString('hex'); // 64 hex characters = 256 bits of entropy
@@ -97,7 +97,7 @@ export async function verifyAdminAuth(authHeader) {
   // Cognito Token Verification via GetUser API or JWT payload
   if (!config.cognito.userPoolId && !config.cognito.clientId) {
     // If Cognito is not yet configured, allow safe local mock admin if in local dev mode
-    if (process.env.NODE_ENV === 'test' || process.env.LOCAL_DEV === 'true') {
+    if (process.env.NODE_ENV === 'test') {
       if (token === 'valid-admin-test-token') {
         return {
           isAuthenticated: true,

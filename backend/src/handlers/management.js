@@ -1,16 +1,23 @@
-// Management Handler: Report Ownership, Status Transitions, and Deletions
-import { GetCommand, UpdateCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
-import { getDocClient } from '../db.js';
-import { config } from '../config.js';
+import { getDatabase, withTransaction } from '../db.js';
 import { verifyManagementToken, verifyAdminAuth } from '../auth.js';
 import { validateStatusTransition } from '../validation.js';
 import { deleteS3Object } from '../s3.js';
 
-/**
- * Helper to authenticate owner via token or administrator via Bearer token
- */
-async function authenticateOwnerOrAdmin({ itemId, token, authHeader, docClient }) {
-  // Check Admin first if authHeader provided
+function mapOwnership(row) {
+  if (!row) return null;
+  return {
+    itemId: row.item_id,
+    tokenHash: row.token_hash,
+    salt: row.salt,
+    allowedActions: row.allowed_actions,
+    failedAttempts: row.failed_attempts,
+    lastFailedAt: row.last_failed_at,
+    lastUsedAt: row.last_used_at,
+    createdAt: row.created_at,
+  };
+}
+
+async function authenticateOwnerOrAdmin({ itemId, token, authHeader, database }) {
   if (authHeader) {
     const adminCheck = await verifyAdminAuth(authHeader);
     if (adminCheck.isAuthenticated) {
@@ -18,28 +25,19 @@ async function authenticateOwnerOrAdmin({ itemId, token, authHeader, docClient }
     }
   }
 
-  // Token authentication
   if (!token) {
     return { authorized: false, statusCode: 401, error: 'Management token or admin authorization required' };
   }
 
-  const ownershipResult = await docClient.send(
-    new GetCommand({
-      TableName: config.tables.ownership,
-      Key: { itemId },
-    })
-  );
-
-  const ownership = ownershipResult.Item;
+  const result = await database.query('SELECT * FROM ownership WHERE item_id = $1', [itemId]);
+  const ownership = mapOwnership(result.rows[0]);
   if (!ownership) {
     return { authorized: false, statusCode: 404, error: 'Ownership record not found for this report' };
   }
 
-  // Check brute force lockout
   if (ownership.failedAttempts >= 5) {
     const lastFailed = new Date(ownership.lastFailedAt || 0).getTime();
-    const oneHour = 60 * 60 * 1000;
-    if (Date.now() - lastFailed < oneHour) {
+    if (Date.now() - lastFailed < 60 * 60 * 1000) {
       return {
         authorized: false,
         statusCode: 429,
@@ -48,121 +46,82 @@ async function authenticateOwnerOrAdmin({ itemId, token, authHeader, docClient }
     }
   }
 
-  const isValid = verifyManagementToken(token, ownership.salt, ownership.tokenHash);
-
-  if (!isValid) {
-    // Increment failed attempts
+  if (!verifyManagementToken(token, ownership.salt, ownership.tokenHash)) {
     try {
-      await docClient.send(
-        new UpdateCommand({
-          TableName: config.tables.ownership,
-          Key: { itemId },
-          UpdateExpression: 'ADD #failed :inc SET #lastFailedAt = :now',
-          ExpressionAttributeNames: { '#failed': 'failedAttempts', '#lastFailedAt': 'lastFailedAt' },
-          ExpressionAttributeValues: { ':inc': 1, ':now': new Date().toISOString() },
-        })
+      await database.query(
+        `UPDATE ownership
+         SET failed_attempts = failed_attempts + 1, last_failed_at = $2
+         WHERE item_id = $1`,
+        [itemId, new Date().toISOString()]
       );
-    } catch (err) {
-      console.warn('Failed to increment failed attempts:', err.message);
+    } catch (error) {
+      console.warn('Failed to increment failed attempts:', error.message);
     }
     return { authorized: false, statusCode: 403, error: 'Invalid management token' };
   }
 
-  // Record successful access and reset failed attempts
   try {
-    await docClient.send(
-      new UpdateCommand({
-        TableName: config.tables.ownership,
-        Key: { itemId },
-        UpdateExpression: 'SET #lastUsedAt = :now, #failed = :zero',
-        ExpressionAttributeNames: { '#lastUsedAt': 'lastUsedAt', '#failed': 'failedAttempts' },
-        ExpressionAttributeValues: { ':now': new Date().toISOString(), ':zero': 0 },
-      })
+    await database.query(
+      'UPDATE ownership SET last_used_at = $2, failed_attempts = 0 WHERE item_id = $1',
+      [itemId, new Date().toISOString()]
     );
-  } catch (err) {
-    console.warn('Failed to update lastUsedAt:', err.message);
+  } catch (error) {
+    console.warn('Failed to update last_used_at:', error.message);
   }
 
   return { authorized: true, isAdmin: false, ownership };
 }
 
-/**
- * POST /manage/:itemId/verify - Check token validity
- */
 export async function verifyTokenHandler(itemId, token, clientOverride = null) {
   if (!itemId || !token) {
-    return {
-      statusCode: 400,
-      body: { success: false, valid: false, error: 'itemId and token are required' },
-    };
+    return { statusCode: 400, body: { success: false, valid: false, error: 'itemId and token are required' } };
   }
 
-  const docClient = getDocClient(clientOverride);
-  const auth = await authenticateOwnerOrAdmin({ itemId, token, docClient });
-
+  const database = getDatabase(clientOverride);
+  const auth = await authenticateOwnerOrAdmin({ itemId, token, database });
   if (!auth.authorized) {
-    return {
-      statusCode: auth.statusCode,
-      body: { success: false, valid: false, error: auth.error },
-    };
+    return { statusCode: auth.statusCode, body: { success: false, valid: false, error: auth.error } };
   }
 
-  // Get item to return current title and status
-  const itemResult = await docClient.send(
-    new GetCommand({
-      TableName: config.tables.items,
-      Key: { itemId },
-    })
+  const result = await database.query(
+    'SELECT item_id, name, type, status, event_date FROM items WHERE item_id = $1',
+    [itemId]
   );
-
+  const row = result.rows[0];
   return {
     statusCode: 200,
     body: {
       success: true,
       valid: true,
       allowedActions: auth.ownership?.allowedActions || ['update_status', 'delete_report'],
-      item: itemResult.Item ? {
-        itemId: itemResult.Item.itemId,
-        name: itemResult.Item.name,
-        type: itemResult.Item.type,
-        status: itemResult.Item.status,
-        eventDate: itemResult.Item.eventDate,
+      item: row ? {
+        itemId: row.item_id,
+        name: row.name,
+        type: row.type,
+        status: row.status,
+        eventDate: row.event_date instanceof Date ? row.event_date.toISOString().slice(0, 10) : row.event_date,
       } : null,
     },
   };
 }
 
-/**
- * PATCH /items/:itemId/status - Update item status (e.g. marked as 'returned' / 'recovered')
- */
 export async function updateStatusHandler(itemId, body, headers = {}, clientOverride = null) {
   const token = headers['x-management-token'] || headers['X-Management-Token'] || body?.token;
   const authHeader = headers['authorization'] || headers['Authorization'];
   const newStatus = body?.status;
-
   if (!newStatus) {
     return { statusCode: 400, body: { success: false, error: "Field 'status' is required" } };
   }
 
-  const docClient = getDocClient(clientOverride);
-  const auth = await authenticateOwnerOrAdmin({ itemId, token, authHeader, docClient });
-
+  const database = getDatabase(clientOverride);
+  const auth = await authenticateOwnerOrAdmin({ itemId, token, authHeader, database });
   if (!auth.authorized) {
     return { statusCode: auth.statusCode, body: { success: false, error: auth.error } };
   }
 
-  // Get current item status
-  const itemResult = await docClient.send(
-    new GetCommand({
-      TableName: config.tables.items,
-      Key: { itemId },
-    })
-  );
-
-  const currentItem = itemResult.Item;
-  if (!currentItem) {
-    return { statusCode: 404, body: { success: false, error: 'Item not found' } };
-  }
+  const itemResult = await database.query('SELECT status FROM items WHERE item_id = $1', [itemId]);
+  const currentItem = itemResult.rows[0];
+  if (!currentItem) return { statusCode: 404, body: { success: false, error: 'Item not found' } };
 
   const transition = validateStatusTransition(currentItem.status, newStatus, auth.isAdmin);
   if (!transition.isAllowed) {
@@ -170,22 +129,12 @@ export async function updateStatusHandler(itemId, body, headers = {}, clientOver
   }
 
   const now = new Date().toISOString();
-
-  await docClient.send(
-    new UpdateCommand({
-      TableName: config.tables.items,
-      Key: { itemId },
-      UpdateExpression: 'SET #status = :newStatus, #updatedAt = :now, #resolvedAt = :now',
-      ExpressionAttributeNames: {
-        '#status': 'status',
-        '#updatedAt': 'updatedAt',
-        '#resolvedAt': 'resolvedAt',
-      },
-      ExpressionAttributeValues: {
-        ':newStatus': newStatus,
-        ':now': now,
-      },
-    })
+  await database.query(
+    `UPDATE items
+     SET status = $2, updated_at = $3,
+         resolved_at = CASE WHEN $2 IN ('returned', 'archived') THEN $3 ELSE resolved_at END
+     WHERE item_id = $1`,
+    [itemId, newStatus, now]
   );
 
   return {
@@ -199,66 +148,30 @@ export async function updateStatusHandler(itemId, body, headers = {}, clientOver
   };
 }
 
-/**
- * DELETE /items/:itemId - Delete or permanently archive an item
- */
 export async function deleteItemHandler(itemId, headers = {}, clientOverride = null, s3Override = null) {
   const token = headers['x-management-token'] || headers['X-Management-Token'];
   const authHeader = headers['authorization'] || headers['Authorization'];
-
-  const docClient = getDocClient(clientOverride);
-  const auth = await authenticateOwnerOrAdmin({ itemId, token, authHeader, docClient });
-
+  const database = getDatabase(clientOverride);
+  const auth = await authenticateOwnerOrAdmin({ itemId, token, authHeader, database });
   if (!auth.authorized) {
     return { statusCode: auth.statusCode, body: { success: false, error: auth.error } };
   }
 
-  const itemResult = await docClient.send(
-    new GetCommand({
-      TableName: config.tables.items,
-      Key: { itemId },
-    })
-  );
+  const itemResult = await database.query('SELECT image_key FROM items WHERE item_id = $1', [itemId]);
+  const item = itemResult.rows[0];
+  if (!item) return { statusCode: 404, body: { success: false, error: 'Item not found' } };
 
-  const item = itemResult.Item;
-  if (!item) {
-    return { statusCode: 404, body: { success: false, error: 'Item not found' } };
-  }
-
-  // Delete associated S3 image if one exists
-  if (item.imageKey) {
+  if (item.image_key) {
     try {
-      await deleteS3Object({ objectKey: item.imageKey, client: s3Override });
-    } catch (s3Err) {
-      console.warn(`Could not delete S3 image ${item.imageKey}:`, s3Err.message);
+      await deleteS3Object({ objectKey: item.image_key, client: s3Override });
+    } catch (error) {
+      console.warn(`Could not delete S3 image ${item.image_key}:`, error.message);
     }
   }
 
-  // Delete item record
-  await docClient.send(
-    new DeleteCommand({
-      TableName: config.tables.items,
-      Key: { itemId },
-    })
-  );
-
-  // Delete ownership record
-  try {
-    await docClient.send(
-      new DeleteCommand({
-        TableName: config.tables.ownership,
-        Key: { itemId },
-      })
-    );
-  } catch (err) {
-    console.warn(`Could not delete ownership for ${itemId}:`, err.message);
-  }
-
+  await withTransaction((client) => client.query('DELETE FROM items WHERE item_id = $1', [itemId]), database);
   return {
     statusCode: 200,
-    body: {
-      success: true,
-      message: 'Item report successfully deleted and removed from database.',
-    },
+    body: { success: true, message: 'Item report successfully deleted and removed from database.' },
   };
 }

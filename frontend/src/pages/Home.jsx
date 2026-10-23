@@ -327,7 +327,7 @@ export function Home() {
               </div>
               <h3 className="text-base font-bold text-white">1. File a Quick Report</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Describe the item, where it was lost or found, and attach an optional photo. Our backend saves it to Amazon DynamoDB and uploads the image to Amazon S3 via presigned URLs.
+                Describe the item, where it was lost or found, and attach an optional photo. Our backend saves it to PostgreSQL and uploads the image to Amazon S3 via presigned URLs.
               </p>
             </div>
 

@@ -21,10 +21,6 @@ out/
 credentials
 aws-credentials.json
 
-# AWS SAM build artifacts
-.aws-sam/
-samconfig.toml.bak
-
 # IDE & OS
 .vscode/
 .idea/

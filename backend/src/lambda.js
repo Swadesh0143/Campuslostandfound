@@ -1,5 +1,6 @@
 // AWS Lambda Entry Point for API Gateway HTTP API v2
 import { config } from './config.js';
+import { initializeDatabase } from './db.js';
 import { listItemsHandler, getItemHandler, createItemHandler } from './handlers/items.js';
 import { presignUploadHandler } from './handlers/uploads.js';
 import { verifyTokenHandler, updateStatusHandler, deleteItemHandler } from './handlers/management.js';
@@ -74,6 +75,8 @@ export async function handler(event, context) {
   }
 
   try {
+    await initializeDatabase();
+
     // 2. Route matching
     // Health check
     if (path === '/health' || path === '/') {

@@ -69,7 +69,7 @@ async function request(endpoint, options = {}) {
 // -------------------------------------------------------------
 
 /**
- * GET /stats - Fetch real counts from DynamoDB
+ * GET /stats - Fetch aggregate counts from PostgreSQL
  */
 export async function getStats() {
   return request('/stats');

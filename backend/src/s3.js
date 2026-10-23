@@ -43,9 +43,8 @@ export async function createPresignedUploadUrl({
 
   // If running in local dev mode without live AWS S3 credentials
   if (process.env.LOCAL_DEV === 'true' && !process.env.AWS_ACCESS_KEY_ID) {
-    const port = process.env.PORT || 3001;
     return {
-      uploadUrl: `http://localhost:${port}/local-uploads/${objectKey}`,
+      uploadUrl: `/local-uploads/${objectKey}`,
       objectKey,
       expiresIn,
       maxSizeBytes: config.s3.maxSizeBytes,
@@ -83,8 +82,7 @@ export async function createPresignedDownloadUrl({
 
   // If running in local dev mode without live AWS S3 credentials
   if (process.env.LOCAL_DEV === 'true' && !process.env.AWS_ACCESS_KEY_ID) {
-    const port = process.env.PORT || 3001;
-    return `http://localhost:${port}/local-uploads/${objectKey}`;
+    return `/local-uploads/${objectKey}`;
   }
 
   const command = new GetObjectCommand({

@@ -1,8 +1,7 @@
 // Backend Unit Tests: Management & Status Transitions
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MockDynamoDbClient } from './mock-db.js';
-import { setDocClientForTesting } from '../src/db.js';
+import { MockPostgresClient } from './mock-db.js';
 import { createItemHandler } from '../src/handlers/items.js';
 import {
   verifyTokenHandler,
@@ -11,8 +10,7 @@ import {
 } from '../src/handlers/management.js';
 
 test('verifyTokenHandler verifies valid token and rejects invalid token', async () => {
-  const mockDb = new MockDynamoDbClient();
-  setDocClientForTesting(mockDb);
+  const mockDb = new MockPostgresClient();
 
   const createRes = await createItemHandler(
     {
@@ -45,8 +43,7 @@ test('verifyTokenHandler verifies valid token and rejects invalid token', async 
 });
 
 test('updateStatusHandler marks item returned with valid token and rejects unauthorized updates', async () => {
-  const mockDb = new MockDynamoDbClient();
-  setDocClientForTesting(mockDb);
+  const mockDb = new MockPostgresClient();
 
   const createRes = await createItemHandler(
     {
@@ -84,8 +81,7 @@ test('updateStatusHandler marks item returned with valid token and rejects unaut
 });
 
 test('deleteItemHandler deletes item and ownership record with valid token', async () => {
-  const mockDb = new MockDynamoDbClient();
-  setDocClientForTesting(mockDb);
+  const mockDb = new MockPostgresClient();
 
   const createRes = await createItemHandler(
     {
@@ -114,7 +110,6 @@ test('deleteItemHandler deletes item and ownership record with valid token', asy
   assert.equal(deleteRes.statusCode, 200);
   assert.equal(deleteRes.body.success, true);
 
-  // Confirm item is removed from database
-  const itemInDb = mockDb.tables['CampusFind-Items'].get(itemId);
-  assert.equal(itemInDb, undefined);
+  assert.equal(mockDb.items.has(itemId), false);
+  assert.equal(mockDb.ownership.has(itemId), false);
 });

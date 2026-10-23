@@ -167,8 +167,8 @@ export function ReportItem({ defaultType = 'lost' }) {
         });
       }
 
-      // 2. Persist record to DynamoDB backend
-      setSubmitStatusText('Saving report to DynamoDB and generating ownership token...');
+      // 2. Persist the report and ownership token in PostgreSQL.
+      setSubmitStatusText('Saving report and generating ownership token...');
       const createRes = await createItem({
         type,
         name: formData.name.trim(),

@@ -1,44 +1,23 @@
-// Contact Privacy Handler: Secure Contact Detail Reveal
-import { GetCommand } from '@aws-sdk/lib-dynamodb';
-import { getDocClient } from '../db.js';
-import { config } from '../config.js';
+import { getDatabase } from '../db.js';
 
-/**
- * GET /contact/:itemId - Privacy-conscious endpoint for revealing contact info
- * Ensures contact details are never leaked on card lists or search indexes.
- */
 export async function getContactHandler(itemId, clientOverride = null) {
   if (!itemId || typeof itemId !== 'string') {
-    return {
-      statusCode: 400,
-      body: { success: false, error: 'Valid itemId parameter is required' },
-    };
+    return { statusCode: 400, body: { success: false, error: 'Valid itemId parameter is required' } };
   }
 
-  const docClient = getDocClient(clientOverride);
-
-  const itemResult = await docClient.send(
-    new GetCommand({
-      TableName: config.tables.items,
-      Key: { itemId },
-    })
+  const database = getDatabase(clientOverride);
+  const result = await database.query(
+    `SELECT item_id, name, type, contact_name, contact_method, moderation_status, status
+     FROM items WHERE item_id = $1`,
+    [itemId]
   );
-
-  const item = itemResult.Item;
+  const item = result.rows[0];
   if (!item) {
-    return {
-      statusCode: 404,
-      body: { success: false, error: 'Item report not found' },
-    };
+    return { statusCode: 404, body: { success: false, error: 'Item report not found' } };
   }
-
-  if (item.moderationStatus === 'hidden') {
-    return {
-      statusCode: 403,
-      body: { success: false, error: 'This report has been moderated or removed.' },
-    };
+  if (item.moderation_status === 'hidden') {
+    return { statusCode: 403, body: { success: false, error: 'This report has been moderated or removed.' } };
   }
-
   if (item.status === 'returned') {
     return {
       statusCode: 410,
@@ -49,7 +28,6 @@ export async function getContactHandler(itemId, clientOverride = null) {
       },
     };
   }
-
   if (item.status === 'archived') {
     return {
       statusCode: 410,
@@ -66,11 +44,11 @@ export async function getContactHandler(itemId, clientOverride = null) {
     body: {
       success: true,
       data: {
-        itemId: item.itemId,
+        itemId: item.item_id,
         itemName: item.name,
         type: item.type,
-        contactName: item.contactName,
-        contactMethod: item.contactMethod,
+        contactName: item.contact_name,
+        contactMethod: item.contact_method,
         safetyNotice:
           'Please arrange to meet in a safe, public campus location (e.g. Student Union, Library Helpdesk, or Campus Security Office).',
       },

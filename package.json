@@ -10,21 +10,19 @@
   "scripts": {
     "dev": "npm --prefix frontend run dev",
     "start": "node backend/src/dev-server.js",
+    "db:setup": "npm --prefix backend run db:setup",
     "start:backend": "node backend/src/dev-server.js",
     "start:frontend": "npm --prefix frontend run dev",
     "build": "npm --prefix frontend run build",
     "test": "npm --prefix backend test && npm --prefix frontend test",
     "test:backend": "npm --prefix backend test",
     "test:frontend": "npm --prefix frontend test",
-    "lint": "npm --prefix frontend run lint",
-    "sam:validate": "sam validate --lint",
-    "sam:build": "sam build",
-    "sam:deploy": "sam deploy --guided"
+    "lint": "npm --prefix frontend run lint"
   },
   "keywords": [
-    "aws",
-    "serverless",
-    "dynamodb",
+    "docker",
+    "ec2",
+    "postgres",
     "s3",
     "api-gateway",
     "cognito",

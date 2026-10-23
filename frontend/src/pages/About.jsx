@@ -64,15 +64,15 @@ export function About() {
             </p>
           </div>
 
-          {/* Amazon DynamoDB */}
+          {/* PostgreSQL */}
           <div className="p-4 rounded-xl border border-slate-100 bg-slate-50 space-y-2">
             <div className="flex items-center gap-2 text-indigo-600 font-bold text-xs uppercase tracking-wider">
               <Database className="w-4 h-4" />
-              <span>Amazon DynamoDB</span>
+              <span>PostgreSQL</span>
             </div>
-            <h3 className="text-sm font-bold text-slate-900">On-Demand NoSQL</h3>
+            <h3 className="text-sm font-bold text-slate-900">Relational Database</h3>
             <p className="text-xs text-slate-600 leading-relaxed">
-              Stores item records, abuse reports, and ownership hashes. Configured with Pay-Per-Request (On-Demand) billing to guarantee $0 recurring baseline expenses.
+              Stores item reports, abuse reports, and salted ownership-token hashes with transactional consistency.
             </p>
           </div>
 
@@ -132,7 +132,7 @@ export function About() {
               <strong>High Entropy Generation:</strong> When a report is filed, the Lambda backend generates a 256-bit cryptographically random token (<code className="font-mono text-indigo-600">crypto.randomBytes(32)</code>) and a 128-bit salt.
             </li>
             <li>
-              <strong>Hashed Persistence:</strong> Only the SHA-256 hash and salt are stored in DynamoDB (<code className="font-mono text-indigo-600">CampusFind-Ownership</code>). The raw token is returned exactly once in the response.
+              <strong>Hashed Persistence:</strong> Only the SHA-256 hash and salt are stored in PostgreSQL. The raw token is returned exactly once in the response.
             </li>
             <li>
               <strong>Timing Attack Prevention:</strong> When updating or deleting, the user supplies their token via header <code className="font-mono text-indigo-600">X-Management-Token</code>. The backend verifies it using <code className="font-mono text-indigo-600">crypto.timingSafeEqual</code> to prevent side-channel timing attacks.
